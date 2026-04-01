@@ -228,6 +228,36 @@ def parse_args(argv: Iterable[str]):
     return p.parse_args(list(argv))
 
 
+def read_sql_file(path: str) -> str:
+    with open(path, "rb") as f:
+        raw = f.read()
+
+    bom_encodings = [
+        (b"\xef\xbb\xbf", "utf-8-sig"),
+        (b"\xff\xfe", "utf-16"),
+        (b"\xfe\xff", "utf-16"),
+        (b"\xff\xfe\x00\x00", "utf-32"),
+        (b"\x00\x00\xfe\xff", "utf-32"),
+    ]
+    for bom, encoding in bom_encodings:
+        if raw.startswith(bom):
+            return raw.decode(encoding)
+
+    for encoding in ("utf-8", "utf-16", "cp1251"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+
+    raise UnicodeDecodeError(
+        "unknown",
+        raw,
+        0,
+        1,
+        "Не удалось определить кодировку SQL-файла. Сохраните файл в UTF-8/UTF-16 или ANSI (cp1251).",
+    )
+
+
 def main(argv: Iterable[str] | None = None):
     args = parse_args(argv or sys.argv[1:])
 
@@ -235,8 +265,7 @@ def main(argv: Iterable[str] | None = None):
         print("Ошибка: пакет pyodbc не установлен. Установите: pip install pyodbc", file=sys.stderr)
         return 2
 
-    with open(args.sql_file, "r", encoding="utf-8") as f:
-        script = f.read()
+    script = read_sql_file(args.sql_file)
 
     parsed = parse_cte_script(script)
     key_columns = [c.strip() for c in args.key_columns.split(",") if c.strip()] or None
